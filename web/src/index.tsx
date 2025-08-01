@@ -1,8 +1,14 @@
-/* @refresh reload */
 import { render } from 'solid-js/web'
 import './index.css'
 import App from './App.tsx'
+import { Router } from '@solidjs/router'
+import { RootLayout } from './components/RootLayout.tsx'
 
 render(
-    () => (<App />), document.getElementById("root")!
-);
+  () => (
+    <Router root={RootLayout}>
+      <App />
+    </Router>
+  ),
+  document.getElementById('root')!
+)
