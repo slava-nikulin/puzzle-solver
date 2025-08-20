@@ -1,3 +1,9 @@
+use crate::sudoku::Sudoku;
+
 pub struct DfsBacktracking;
 
-// enum
+impl DfsBacktracking {
+    pub fn solve(&mut self, s: &mut Sudoku) -> bool {
+        false
+    }
+}

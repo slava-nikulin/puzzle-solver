@@ -1,16 +1,42 @@
-pub trait Solver {
-    fn solve(&mut self) -> bool;
+use crate::{dfs::DfsBacktracking, stochastic::StochasticBacktracking, sudoku::Sudoku};
+
+pub enum Kind {
+    Stoch,
+    Dfs,
 }
 
-pub struct SolverEngine<A: Solver> {
-    pub alg: A,
+// Concrete strategies
+enum SolverEnum {
+    Stoch(StochasticBacktracking),
+    Dfs(DfsBacktracking),
 }
 
-impl<A> SolverEngine<A>
-where
-    A: Solver,
-{
-    pub fn solve(&mut self) -> bool {
-        self.alg.solve()
+// Abstract strategy
+impl SolverEnum {
+    fn solve(&mut self, s: &mut Sudoku) -> bool {
+        match self {
+            SolverEnum::Stoch(a) => a.solve(s),
+            SolverEnum::Dfs(a) => a.solve(s),
+        }
+    }
+}
+
+// Strategy context
+pub struct SolverEngine {
+    alg: SolverEnum,
+}
+
+impl SolverEngine {
+    pub fn new(kind: Kind) -> Self {
+        Self {
+            alg: match kind {
+                Kind::Stoch => SolverEnum::Stoch(StochasticBacktracking),
+                Kind::Dfs => SolverEnum::Dfs(DfsBacktracking),
+            },
+        }
+    }
+
+    pub fn solve(&mut self, s: &mut Sudoku) -> bool {
+        self.alg.solve(s)
     }
 }

@@ -1,5 +1,4 @@
 use solver::solver::SolverEngine;
-use solver::stochastic::StochasticBacktracking;
 use solver::sudoku::Sudoku;
 
 fn main() {
@@ -16,12 +15,8 @@ fn main() {
     ];
 
     let mut sudoku = Sudoku::new(init_sudoku);
-    let stoch_back_solver = StochasticBacktracking::new(&mut sudoku);
-    let mut solver_engine = SolverEngine {
-        alg: stoch_back_solver,
-    };
-
-    let res = solver_engine.solve();
+    let mut solver_engine = SolverEngine::new(solver::solver::Kind::Stoch);
+    let res = solver_engine.solve(&mut sudoku);
 
     println!("{}", res);
     println!("{}", sudoku);

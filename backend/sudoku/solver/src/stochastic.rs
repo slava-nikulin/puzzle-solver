@@ -1,27 +1,19 @@
-use crate::{solver::Solver, sudoku::Sudoku};
+use crate::sudoku::Sudoku;
 use rand::{Rng, SeedableRng, rngs::SmallRng};
-pub struct StochasticBacktracking<'a> {
-    s: &'a mut Sudoku,
-}
+pub struct StochasticBacktracking;
 
-impl<'a> StochasticBacktracking<'a> {
-    pub fn new(s: &'a mut Sudoku) -> Self {
-        StochasticBacktracking { s }
-    }
-
-    fn reset_square(&mut self, i: usize, j: usize) {
+impl StochasticBacktracking {
+    fn reset_square(&mut self, s: &mut Sudoku, i: usize, j: usize) {
         for p in 0..3 {
             for r in 0..3 {
-                if self.s.init[i * 3 + p][j * 3 + r] == 0 {
-                    self.s.solution[i * 3 + p][j * 3 + r] = 0;
+                if s.init[i * 3 + p][j * 3 + r] == 0 {
+                    s.solution[i * 3 + p][j * 3 + r] = 0;
                 }
             }
         }
     }
-}
 
-impl<'a> Solver for StochasticBacktracking<'a> {
-    fn solve(&mut self) -> bool {
+    pub fn solve(&mut self, s: &mut Sudoku) -> bool {
         let mut rng = SmallRng::from_os_rng();
         let mut cands_mask: [i8; 9] = [0; 9];
         let mut cand: i8;
@@ -33,7 +25,7 @@ impl<'a> Solver for StochasticBacktracking<'a> {
 
         'outer: loop {
             for t in (0..=(i * 3 + j)).rev() {
-                self.reset_square(t / 3, t % 3);
+                self.reset_square(s, t / 3, t % 3);
 
                 if attempts[t] < max_attemts {
                     attempts[t] += 1;
@@ -53,15 +45,15 @@ impl<'a> Solver for StochasticBacktracking<'a> {
                 while j < 3 {
                     for k in 0..3 {
                         for l in 0..3 {
-                            if self.s.solution[i * 3 + k][j * 3 + l] == 0 {
+                            if s.solution[i * 3 + k][j * 3 + l] == 0 {
                                 cands_mask.fill(1);
                                 for q in 0..9 {
-                                    taken = self.s.solution[i * 3 + k][q];
+                                    taken = s.solution[i * 3 + k][q];
                                     if taken > 0 {
                                         cands_mask[(taken - 1) as usize] = 0;
                                     }
 
-                                    taken = self.s.solution[q][j * 3 + l];
+                                    taken = s.solution[q][j * 3 + l];
                                     if taken > 0 {
                                         cands_mask[(taken - 1) as usize] = 0;
                                     }
@@ -69,7 +61,7 @@ impl<'a> Solver for StochasticBacktracking<'a> {
 
                                 for p in 0..3 {
                                     for r in 0..3 {
-                                        taken = self.s.solution[i * 3 + p][j * 3 + r];
+                                        taken = s.solution[i * 3 + p][j * 3 + r];
                                         if taken > 0 {
                                             cands_mask[(taken - 1) as usize] = 0;
                                         }
@@ -91,7 +83,7 @@ impl<'a> Solver for StochasticBacktracking<'a> {
 
                                 cand = cands[rng.random_range(0..cands.len())];
 
-                                self.s.solution[i * 3 + k][j * 3 + l] = cand;
+                                s.solution[i * 3 + k][j * 3 + l] = cand;
                             }
                         }
                     }
@@ -103,9 +95,13 @@ impl<'a> Solver for StochasticBacktracking<'a> {
             break 'outer;
         }
 
-        self.s.check()
+        s.check()
     }
 }
+
+// impl Solver for StochasticBacktracking {
+
+// }
 
 // #[cfg(test)]
 // mod tests {
