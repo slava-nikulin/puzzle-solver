@@ -1,12 +1,12 @@
 use std::fmt;
 
 pub struct Sudoku {
-    pub(crate) init: [[i8; 9]; 9],
-    pub(crate) solution: [[i8; 9]; 9],
+    pub(crate) init: [[u8; 9]; 9],
+    pub(crate) solution: [[u8; 9]; 9],
 }
 
 impl Sudoku {
-    pub fn new(init: [[i8; 9]; 9]) -> Self {
+    pub fn new(init: [[u8; 9]; 9]) -> Self {
         Sudoku {
             init,
             solution: init,

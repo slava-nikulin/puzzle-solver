@@ -15,13 +15,13 @@ impl StochasticBacktracking {
 
     pub fn solve(&mut self, s: &mut Sudoku) -> bool {
         let mut rng = SmallRng::from_os_rng();
-        let mut cands_mask: [i8; 9] = [0; 9];
-        let mut cand: i8;
-        let mut taken: i8;
+        let mut cands_mask: [u8; 9] = [0; 9];
+        let mut cand: u8;
+        let mut taken: u8;
         let mut i: usize = 0;
         let mut j: usize = 0;
-        let mut attempts: [i8; 9] = [0; 9];
-        let max_attemts: i8 = 10;
+        let mut attempts: [u8; 9] = [0; 9];
+        let max_attemts: u8 = 10;
 
         'outer: loop {
             for t in (0..=(i * 3 + j)).rev() {
@@ -68,12 +68,12 @@ impl StochasticBacktracking {
                                     }
                                 }
 
-                                let cands: Vec<i8> =
+                                let cands: Vec<u8> =
                                     cands_mask
                                         .iter()
                                         .enumerate()
                                         .filter_map(|(idx, &val)| {
-                                            if val > 0 { Some((idx + 1) as i8) } else { None }
+                                            if val > 0 { Some((idx + 1) as u8) } else { None }
                                         })
                                         .collect();
 
