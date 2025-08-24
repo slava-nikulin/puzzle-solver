@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug single test (selected)",
+      "cargo": {
+        "args": [
+          "test",
+          "--no-run",
+          "--manifest-path",
+          "${workspaceFolder}/backend/sudoku/solver/Cargo.toml"
+        ],
+        "filter": {
+          "kind": "lib"
+        }
+      },
+      "program": "${cargo:program}",
+      "cwd": "${workspaceFolder}/backend/sudoku/solver",
+      "args": ["${selectedText}", "--nocapture"],
+      "env": {
+        "RUST_BACKTRACE": "1"
+      }
+    }
+  ]
+}
