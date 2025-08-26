@@ -121,4 +121,26 @@ mod tests {
         assert_eq!(sudoku.solution, expected);
         assert!(sudoku.check())
     }
+
+    #[test]
+    fn dfs_backtracking_zero_ok() {
+        let init_sudoku = [
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+        ];
+
+        let mut sudoku = Sudoku::new(init_sudoku);
+
+        let mut solver_engine = SolverEngine::new(Kind::Dfs);
+        let res = solver_engine.solve(&mut sudoku);
+        assert!(res.is_ok());
+        assert!(sudoku.check())
+    }
 }

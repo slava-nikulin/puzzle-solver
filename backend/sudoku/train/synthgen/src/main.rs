@@ -18,6 +18,6 @@ fn main() {
     let mut solver_engine = SolverEngine::new(solver::solver::Kind::Stoch);
     let res = solver_engine.solve(&mut sudoku);
 
-    println!("{}", res);
+    println!("{}", res.is_ok());
     println!("{}", sudoku);
 }
