@@ -1,7 +1,7 @@
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use solver::{
     solver::{Kind, SolverEngine},
-    sudoku::Sudoku,
+    sudoku::Sudoku9,
 };
 use std::hint::black_box;
 
@@ -20,20 +20,9 @@ fn bench_algos(c: &mut Criterion) {
 
     c.bench_function("dfs", |b| {
         b.iter_batched(
-            || Sudoku::new(init),
+            || Sudoku9::new(init),
             |mut s| {
                 let mut eng = SolverEngine::new(Kind::Dfs);
-                black_box(eng.solve(&mut s)).unwrap();
-            },
-            BatchSize::SmallInput,
-        )
-    });
-
-    c.bench_function("stoch", |b| {
-        b.iter_batched(
-            || Sudoku::new(init),
-            |mut s| {
-                let mut eng = SolverEngine::new(Kind::Stoch);
                 black_box(eng.solve(&mut s)).unwrap();
             },
             BatchSize::SmallInput,
