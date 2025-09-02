@@ -1,67 +1,78 @@
 use std::fmt;
 
-pub struct Sudoku {
-    pub(crate) init: [[u8; 9]; 9],
-    pub(crate) solution: [[u8; 9]; 9],
+pub struct Sudoku<const N: usize, const BR: usize, const BC: usize> {
+    pub(crate) init: [[u8; N]; N],
+    pub(crate) solution: [[u8; N]; N],
 }
 
-impl Sudoku {
-    pub fn new(init: [[u8; 9]; 9]) -> Self {
+pub type Sudoku9 = Sudoku<9, 3, 3>;
+pub type Sudoku6 = Sudoku<6, 2, 3>;
+
+impl<const N: usize, const BR: usize, const BC: usize> Sudoku<N, BR, BC> {
+    pub fn new(init: [[u8; N]; N]) -> Self {
         Sudoku {
             init,
             solution: init,
         }
     }
 
+    #[inline]
+    fn box_index(r: usize, c: usize) -> usize {
+        (r / BR) * BC + (c / BC)
+    }
+
     pub fn check(&self) -> bool {
-        let mut small_square_row_num: usize;
-        let mut small_square_col_num: usize;
-        let mut small_square_row_num_check: usize;
-        let mut small_square_col_num_check: usize;
-        for i in 0..3 {
-            for j in 0..3 {
-                for k in 0..3 {
-                    small_square_row_num = i * 3 + k;
-                    for l in 0..3 {
-                        small_square_col_num = j * 3 + l;
-                        for n in 0..3 {
-                            small_square_row_num_check = i * 3 + n;
-                            for m in 0..3 {
-                                small_square_col_num_check = j * 3 + m;
+        let full: u32 = (1u32 << N) - 1;
 
-                                if small_square_row_num != small_square_row_num_check
-                                    && small_square_col_num != small_square_col_num_check
-                                    && self.solution[small_square_row_num][small_square_col_num]
-                                        == self.solution[small_square_row_num_check]
-                                            [small_square_col_num_check]
-                                {
-                                    return false;
-                                }
-                            }
-                        }
+        for i in 0..N {
+            let (mut row, mut col) = (0u32, 0u32);
+            for j in 0..N {
+                let rv = self.solution[i][j];
+                let cv = self.solution[j][j];
+                if rv == 0 || cv == 0 {
+                    return false;
+                }
 
-                        for n in 0..9 {
-                            if (n != small_square_row_num
-                                && self.solution[n][small_square_col_num]
-                                    == self.solution[small_square_row_num][small_square_col_num])
-                                || (n != small_square_col_num
-                                    && self.solution[small_square_row_num][n]
-                                        == self.solution[small_square_row_num]
-                                            [small_square_col_num])
-                            {
-                                return false;
-                            }
+                let rb = 1u32 << (rv - 1);
+                let cb = 1u32 << (cv - 1);
+
+                if (row & rb) != 0 || (col & cb) != 0 {
+                    return false;
+                }
+
+                row |= rb;
+                col |= cb;
+            }
+
+            if row != full || col != full {
+                return false;
+            }
+        }
+
+        for br in (0..N).step_by(BR) {
+            for bc in (0..N).step_by(BC) {
+                let mut boxm = 0u32;
+                for dr in 0..BR {
+                    for dc in 0..BC {
+                        let v = self.solution[br + dr][bc + dc];
+                        let b = 1u32 << (v - 1);
+                        if (boxm & b) != 0 {
+                            return false;
                         }
+                        boxm |= b;
                     }
+                }
+                if boxm != full {
+                    return false;
                 }
             }
         }
 
-        true
+        return true;
     }
 }
 
-impl fmt::Display for Sudoku {
+impl<const N: usize, const BR: usize, const BC: usize> fmt::Display for Sudoku<N, BR, BC> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for row in self.solution {
             for val in row {
