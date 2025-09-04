@@ -73,7 +73,7 @@ impl<const N: usize, const BR: usize, const BC: usize> Sudoku<N, BR, BC> {
             }
         }
 
-        return true;
+        true
     }
 }
 

@@ -4,6 +4,25 @@
     {
       "type": "lldb",
       "request": "launch",
+      "name": "Debug 'synthgen' (cwd=synthgen)",
+      "program": "${cargo:program}",
+      "cargo": {
+        "args": [
+          "build",
+          "--manifest-path=${workspaceFolder}/backend/sudoku/Cargo.toml",
+          "--bin=synthgen",
+          "--package=synthgen"
+        ],
+        "filter": { "name": "synthgen", "kind": "bin" }
+      },
+      "args": [],
+      "env": {},
+      "cwd": "${workspaceFolder}/backend/sudoku/train/synthgen",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
       "name": "Debug single test (selected)",
       "cargo": {
         "args": [
