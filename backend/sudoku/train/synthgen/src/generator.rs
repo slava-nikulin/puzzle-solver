@@ -1,12 +1,12 @@
-use std::{fs::OpenOptions, path::Path};
+use std::{fs::OpenOptions, io::Write, path::Path};
 
+use ab_glyph::{FontRef, PxScale};
 use image::{Rgba, RgbaImage};
 use imageproc::{
     drawing::{draw_filled_rect_mut, draw_text_mut},
     rect::Rect,
 };
 use rand::{Rng, SeedableRng, rngs::SmallRng};
-use rusttype::{Font, Scale};
 use serde::Serialize;
 
 use crate::render::RenderCfg;
@@ -16,13 +16,14 @@ struct JsonRecord {
     image: String,
     labels: Vec<u8>,
     boxes: Vec<[u32; 4]>,
+    dim: u8,
     seed: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     highlight: Option<Highlight>,
 }
 
 #[derive(Serialize, Clone, Copy)]
-struct Highlight {
+pub struct Highlight {
     row: usize,
     col: usize,
     cell: (usize, usize),
@@ -38,28 +39,26 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<N, B
         self.m.iter_mut().for_each(|row| row.fill(0));
     }
 
-    pub fn generate(&mut self) {
-        let mut rng = SmallRng::from_os_rng();
-        let probability_of_zero = rng.random_range(60..=75);
-
-        for row in 0..N {
-            for col in 0..N {
-                let cell = if rng.random_range(0..100) < probability_of_zero {
+    pub fn generate_with_seed(&mut self, seed: u64) {
+        let mut rng = SmallRng::seed_from_u64(seed);
+        let p0 = rng.random_range(60..=75);
+        for r in 0..N {
+            for c in 0..N {
+                self.m[r][c] = if rng.random_range(0..100) < p0 {
                     0
                 } else {
-                    rng.random_range(0..=N)
+                    rng.random_range(1..=N) as u8
                 };
-                self.m[row][col] = cell as u8;
             }
         }
     }
 
-    fn save_img(
+    pub fn save_img(
         &self,
         id: u32,
         seed: u64,
         cfg: &RenderCfg,
-    ) -> image::ImageResult<[[u32; 4]; N * N]> {
+    ) -> image::ImageResult<([[[u32; 4]; N]; N], Option<Highlight>)> {
         // геометрия
         let w = cfg.img_w;
         let h = cfg.img_w;
@@ -74,13 +73,13 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<N, B
         let hl_box = Rgba([120, 170, 255, 50]);
         let hl_cell = Rgba([120, 170, 255, 120]);
 
-        // bbox'ы клеток
-        let mut boxes = [[0u32; 4]; N * N];
+        // bbox'ы клеток x, y, w, h
+        let mut boxes = [[[0u32; 4]; N]; N];
         for r in 0..N {
             for c in 0..N {
                 let x = margin + c as u32 * cell;
                 let y = margin + r as u32 * cell;
-                boxes[r * N + c] = [x, y, cell, cell];
+                boxes[r][c] = [x, y, cell, cell];
             }
         }
 
@@ -100,14 +99,14 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<N, B
         // рендер подсветок
         if let Some(hh) = hl {
             // row
-            let y = boxes[hh.row * N].1();
+            let y = boxes[hh.row][0].y();
             draw_filled_rect_mut(
                 &mut img,
                 Rect::at(margin as i32, y as i32).of_size(board, cell),
                 hl_row,
             );
             // col
-            let x = boxes[hh.col].0();
+            let x = boxes[0][hh.col].x();
             draw_filled_rect_mut(
                 &mut img,
                 Rect::at(x as i32, margin as i32).of_size(cell, board),
@@ -118,17 +117,18 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<N, B
             let y0: u32 = margin + (hh.sbox.0 as u32) * (BC as u32) * cell;
             draw_filled_rect_mut(
                 &mut img,
-                Rect::at(x0 as i32, y0 as i32)
-                    .of_size(BR as u32 * cell as u32, BC as u32 * cell as u32),
+                Rect::at(x0 as i32, y0 as i32).of_size(BR as u32 * cell, BC as u32 * cell),
                 hl_box,
             );
             // cell
-            let (r, c) = hh.cell;
-            let [x, y, wc, hc] = boxes[r * N + c];
+            let bx = rng.random_range(0..N / BC);
+            let by = rng.random_range(0..N / BR);
+            let x0 = margin + (bx as u32) * (BC as u32) * cell;
+            let y0 = margin + (by as u32) * (BR as u32) * cell;
             draw_filled_rect_mut(
                 &mut img,
-                Rect::at(x as i32, y as i32).of_size(wc, hc),
-                hl_cell,
+                Rect::at(x0 as i32, y0 as i32).of_size((BC as u32) * cell, (BR as u32) * cell),
+                hl_box,
             );
         }
 
@@ -147,13 +147,13 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<N, B
                 // вертикаль
                 draw_filled_rect_mut(
                     &mut img,
-                    Rect::at((x as i32 - (t / 2) as i32), margin as i32).of_size(t, board),
+                    Rect::at(x as i32 - (t / 2) as i32, margin as i32).of_size(t, board),
                     black,
                 );
                 // горизонталь
                 draw_filled_rect_mut(
                     &mut img,
-                    Rect::at(margin as i32, (y as i32 - (t / 2) as i32)).of_size(board, t),
+                    Rect::at(margin as i32, y as i32 - (t / 2) as i32).of_size(board, t),
                     black,
                 );
             }
@@ -161,9 +161,12 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<N, B
 
         // цифры
         // Вшитый шрифт (любой TTF, тут DejaVuSansMono)
-        static FONT_BYTES: &[u8] = include_bytes!("DejaVuSansMono.ttf");
-        let font = Font::try_from_bytes(FONT_BYTES).unwrap();
-        let scale = Scale::uniform(cfg.font_px);
+
+        let font = FontRef::try_from_slice(include_bytes!("../assets/DejaVuSansMono.ttf")).unwrap();
+        let scale = PxScale {
+            x: cfg.font_px,
+            y: cfg.font_px,
+        };
 
         for r in 0..N {
             for c in 0..N {
@@ -171,10 +174,10 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<N, B
                 if v == 0 {
                     continue;
                 }
-                let [x, y, wc, hc] = boxes[r * N + c];
+                let [x, y, wc, hc] = boxes[r][c];
                 // центрирование приблизительное
                 let tx = x + wc / 3;
-                let ty = y + (2 * hc) / 3;
+                let ty = y;
                 draw_text_mut(
                     &mut img,
                     black,
@@ -194,14 +197,14 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<N, B
         std::fs::create_dir_all(out_path.parent().unwrap()).ok();
         img.save(out_path)?;
 
-        Ok(boxes)
+        Ok((boxes, hl))
     }
 
-    fn save_matrix(
+    pub fn save_matrix(
         &self,
         id: u32,
         seed: u64,
-        boxes: &[[u32; 4]; N * N],
+        boxes: &[[[u32; 4]; N]; N],
         hl: Option<Highlight>,
         cfg: &RenderCfg,
     ) -> std::io::Result<()> {
@@ -209,15 +212,16 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<N, B
         let rec = JsonRecord {
             image: image_rel,
             labels: self.m.iter().flatten().cloned().collect(),
-            boxes: boxes.iter().cloned().collect(),
+            boxes: boxes.iter().flatten().cloned().collect(),
             seed,
             highlight: hl,
+            dim: N as u8,
         };
         let json = serde_json::to_string(&rec).unwrap();
 
         let path = Path::new(&cfg.out_dir).join("labels.jsonl");
         let mut f = OpenOptions::new().create(true).append(true).open(path)?;
-        writeln!(f, "{json}")?;
+        writeln!(&mut f, "{json}")?;
         Ok(())
     }
 }

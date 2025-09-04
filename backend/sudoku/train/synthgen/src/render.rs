@@ -12,7 +12,7 @@ pub struct RenderCfg {
 impl Default for RenderCfg {
     fn default() -> Self {
         Self {
-            out_dir: "dataset".to_string(),
+            out_dir: "dataset9".to_string(),
             img_w: 512,
             margin: 16,
             line_thin: 2,
