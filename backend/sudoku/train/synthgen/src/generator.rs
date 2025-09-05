@@ -1,4 +1,4 @@
-use ab_glyph::{Font, PxScale, ScaleFont, point};
+use ab_glyph::PxScale;
 use image::RgbaImage;
 use imageproc::{
     drawing::{draw_filled_rect_mut, draw_text_mut},
@@ -13,7 +13,7 @@ use std::{
 };
 
 use crate::{
-    fonts::{self, FontCache},
+    fonts::{self, FontCache, get_metrics_pack},
     render::{ColorPalette, Highlight, ImageConfig},
 };
 
@@ -35,10 +35,9 @@ impl CellBox {
     }
 }
 
-// ==== Константы вместо RenderCfg ====
-
 #[derive(Serialize)]
 struct JsonRecord {
+    schema: &'static str,
     image: String,
     labels: Vec<u8>,
     boxes: Vec<[u32; 4]>,
@@ -248,6 +247,78 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
         }
     }
 
+    // fn render_numbers(
+    //     &self,
+    //     img: &mut RgbaImage,
+    //     boxes: &[[CellBox; N]; N],
+    //     colors: &ColorPalette,
+    //     rng: &mut SmallRng,
+    // ) {
+    //     let cache = FontCache::global();
+    //     let small = rng.random_range(0..100) < 35;
+    //     let scale = if small {
+    //         PxScale {
+    //             x: self.config.font_px / 2.0,
+    //             y: self.config.font_px / 2.0,
+    //         }
+    //     } else {
+    //         PxScale {
+    //             x: self.config.font_px,
+    //             y: self.config.font_px,
+    //         }
+    //     };
+
+    //     let font = cache.get_random(rng);
+    //     let base_jitter_px: f32 = if small { 1.0 } else { 2.0 };
+    //     // Масштабированное лицо шрифта для метрик ascent/descent/height
+    //     let sf = font.as_scaled(scale); // дает доступ к ascent(), descent(), height() в пикселях [7]
+
+    //     for r in 0..N {
+    //         for c in 0..N {
+    //             let value = self.m[r][c];
+    //             if value == 0 {
+    //                 continue;
+    //             }
+
+    //             let cell = boxes[r][c];
+    //             let text = fonts::DIGITS[value as usize];
+
+    //             // 1) Горизонтальный центр — по реальной ширине контура одного глифа
+    //             let gid = font.glyph_id(text.chars().next().unwrap());
+    //             let glyph0 = gid.with_scale_and_position(scale, point(0.0, 0.0));
+    //             let outlined0 = font.outline_glyph(glyph0).expect("font must have outlines"); // [2]
+    //             let b = outlined0.px_bounds(); // точные пиксельные границы контура [2][1]
+    //             let bw = (b.max.x - b.min.x) as f32;
+
+    //             // 2) Вертикальный центр — по макетной высоте (ascent - descent),
+    //             // без line_gap для одиночной строки
+    //             let layout_h = sf.height(); // ascent - descent (descent отрицателен) [7]
+    //             let cx = cell.x as f32 + 0.5 * cell.w as f32;
+    //             let cy = cell.y as f32 + 0.5 * cell.h as f32;
+
+    //             let mut tl_x = (cx - 0.5 * bw).round();
+    //             let mut tl_y = (cy - 0.5 * layout_h).round(); // верх макетной рамки [8][7]
+
+    //             let jx = rng.random_range(-base_jitter_px..=base_jitter_px);
+    //             let jy = rng.random_range(-base_jitter_px..=base_jitter_px);
+
+    //             tl_x += jx;
+    //             tl_y += jy;
+
+    //             // draw_text_mut ожидает верхний‑левый угол макетной рамки
+    //             draw_text_mut(
+    //                 img,
+    //                 colors.border,
+    //                 tl_x as i32,
+    //                 tl_y as i32,
+    //                 scale,
+    //                 font,
+    //                 text,
+    //             );
+    //         }
+    //     }
+    // }
+
     fn render_numbers(
         &self,
         img: &mut RgbaImage,
@@ -255,62 +326,71 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
         colors: &ColorPalette,
         rng: &mut SmallRng,
     ) {
-        // 1) Шрифт и масштаб
-        let font = FontCache::global().get_random(rng);
         let small = rng.random_range(0..100) < 35;
-        let scale = if small {
-            PxScale {
-                x: self.config.font_px / 2.0,
-                y: self.config.font_px / 2.0,
-            }
+        let px = if small {
+            (self.config.font_px / 2.0).round() as u32
         } else {
-            PxScale {
-                x: self.config.font_px,
-                y: self.config.font_px,
-            }
+            self.config.font_px.round() as u32
+        };
+        let scale = PxScale {
+            x: px as f32,
+            y: px as f32,
         };
 
-        // 2) Рендер каждой цифры
+        let (font, font_name) = FontCache::global().get_random_named(rng);
+        let pack = get_metrics_pack(font_name, font, px);
+        let layout_h = pack.height;
+
         for r in 0..N {
             for c in 0..N {
-                let value = self.m[r][c];
-                if value == 0 {
+                let v = self.m[r][c];
+                if v == 0 {
                     continue;
                 }
-
                 let cell = boxes[r][c];
-                let ch = fonts::DIGITS[value as usize];
 
-                // Построить глиф в (0,0), чтобы померить px_bounds
-                let gid = font.glyph_id(ch);
-                let glyph0 = gid.with_scale_and_position(scale, point(0.0, 0.0));
-                if let Some(outlined0) = font.outline_glyph(glyph0) {
-                    let b = outlined0.px_bounds();
-                    let bw = b.max.x - b.min.x;
-                    let bh = b.max.y - b.min.y;
+                // предрасчитанные метрики
+                let dm = &pack.digits[v as usize];
+                let cx = cell.x as f32 + 0.5 * cell.w as f32;
+                let cy = cell.y as f32 + 0.5 * cell.h as f32;
 
-                    let cx = cell.x as f32 + 0.5 * cell.w as f32;
-                    let cy = cell.y as f32 + 0.5 * cell.h as f32;
+                let jx: f32 = if small {
+                    rng.random_range(-1.0..=1.0)
+                } else {
+                    rng.random_range(-2.0..=2.0)
+                };
+                let jy: f32 = if small {
+                    rng.random_range(-1.0..=1.0)
+                } else {
+                    rng.random_range(-2.0..=2.0)
+                };
 
-                    let tl_x = (cx - 0.5 * bw).round() as i32;
-                    let tl_y = (cy - 0.7 * bh).round() as i32;
+                let tl_x = (cx - 0.5 * dm.bw + jx).round() as i32;
+                let tl_y = (cy - 0.5 * layout_h + jy).round() as i32;
 
-                    draw_text_mut(img, colors.border, tl_x, tl_y, scale, font, &ch.to_string());
-                }
-                // Никакого return здесь — продолжаем рендер сетки
+                draw_text_mut(
+                    img,
+                    colors.border,
+                    tl_x,
+                    tl_y,
+                    scale,
+                    font,
+                    fonts::DIGITS[v as usize],
+                );
             }
         }
     }
 
     fn save_image(&self, img: &RgbaImage, id: u32) -> image::ImageResult<()> {
+        debug_assert_eq!(N, BR * BC);
+        debug_assert!(self.config.board_size >= self.config.cell_size * (N as u32));
+        debug_assert!(
+            self.config.board_size - self.config.cell_size * (N as u32) < self.config.cell_size
+        );
+
         let out_path = Path::new(self.config.out_dir)
             .join("images")
             .join(format!("{id:06}.png"));
-
-        if self.writer.is_none() {
-            let dir = Path::new(self.config.out_dir).join("images");
-            std::fs::create_dir_all(&dir)?;
-        }
 
         img.save(out_path)
     }
@@ -336,6 +416,7 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
     ) -> Result<(), Error> {
         let image_rel = format!("images/{id:06}.png");
         let rec = JsonRecord {
+            schema: "v1",
             image: image_rel,
             labels: self.m.iter().flatten().cloned().collect(),
             boxes: boxes.iter().flatten().cloned().collect(),
@@ -344,13 +425,6 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
             dim: N as u8,
         };
         let json = serde_json::to_string(&rec).unwrap();
-
-        // Инициализируем writer при первом вызове
-        if self.writer.is_none() {
-            let path = Path::new(self.config.out_dir).join("labels.jsonl");
-            let file = File::create(path)?;
-            self.writer = Some(BufWriter::with_capacity(8 << 20, file));
-        }
 
         // Записываем в уже открытый файл
         if let Some(ref mut writer) = self.writer {
@@ -363,6 +437,17 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
     pub fn close_writer(&mut self) -> Result<(), Error> {
         if let Some(writer) = self.writer.take() {
             writer.into_inner()?.sync_all()?;
+        }
+        Ok(())
+    }
+
+    pub fn init_io(&mut self) -> std::io::Result<()> {
+        let dir = std::path::Path::new(self.config.out_dir).join("images");
+        std::fs::create_dir_all(&dir)?;
+        if self.writer.is_none() {
+            let path = std::path::Path::new(self.config.out_dir).join("labels.jsonl");
+            let file = std::fs::File::create(path)?;
+            self.writer = Some(std::io::BufWriter::with_capacity(8 << 20, file));
         }
         Ok(())
     }

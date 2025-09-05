@@ -14,6 +14,7 @@ fn main() -> anyhow::Result<()> {
         writer: None,
         config: ImageConfig::new(9),
     };
+    t.init_io()?;
     for i in 0..TRAIN_DATA_NUM {
         let mut sm = SplitMix64::seed_from_u64(i as u64);
         let seed = sm.next_u64();
