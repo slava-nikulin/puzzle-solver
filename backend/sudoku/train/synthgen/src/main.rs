@@ -1,9 +1,11 @@
 use rand::{RngCore, SeedableRng};
 use rand_xoshiro::SplitMix64;
 
-use crate::generator::{DatasetItemGenerator, ImageConfig};
+use crate::{generator::DatasetItemGenerator, render::ImageConfig};
 
+mod fonts;
 mod generator;
+mod render;
 
 const TRAIN_DATA_NUM: i32 = 5;
 fn main() -> anyhow::Result<()> {

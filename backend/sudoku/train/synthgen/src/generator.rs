@@ -1,77 +1,21 @@
-use std::{
-    fs::{File, read_dir},
-    io::{BufWriter, Error, Write},
-    path::Path,
-    sync::{Arc, Mutex, OnceLock},
-};
-
-use ab_glyph::{Font, FontArc, PxScale, ScaleFont};
-use image::{Rgba, RgbaImage};
+use ab_glyph::{Font, PxScale, ScaleFont, point};
+use image::RgbaImage;
 use imageproc::{
     drawing::{draw_filled_rect_mut, draw_text_mut},
     rect::Rect,
 };
-use once_cell::sync::Lazy;
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 use serde::Serialize;
+use std::{
+    fs::File,
+    io::{BufWriter, Error, Write},
+    path::Path,
+};
 
-static FONT_CACHE: OnceLock<FontCache> = OnceLock::new();
-const DIGITS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
-
-struct FontCache {
-    fonts: Vec<FontArc>,
-}
-
-impl FontCache {
-    fn new() -> Self {
-        let fonts = Self::load_fonts();
-        // детерминированный порядок
-        // fonts.sort_by(|a, b| a.as_font().full_name().cmp(&b.as_font().full_name()));
-        if fonts.is_empty() {
-            panic!("No fonts found in assets/fonts");
-        }
-        FontCache { fonts }
-    }
-
-    fn load_fonts() -> Vec<FontArc> {
-        let font_dir = Path::new("assets/fonts");
-
-        read_dir(font_dir)
-            .ok()
-            .into_iter()
-            .flat_map(|rd| rd.filter_map(|e| e.ok()))
-            .map(|e| e.path())
-            .filter(|p| {
-                matches!(
-                    p.extension().and_then(|s| s.to_str()),
-                    Some("ttf") | Some("otf")
-                )
-            })
-            .filter_map(|path| {
-                std::fs::read(&path)
-                    .ok()
-                    .and_then(|bytes| FontArc::try_from_vec(bytes).ok())
-                    .filter(|f| ('0'..='9').all(|ch| f.glyph_id(ch).0 != 0))
-            })
-            .collect()
-    }
-
-    fn get_random<'a>(&'a self, rng: &mut SmallRng) -> &'a FontArc {
-        &self.fonts[rng.random_range(0..self.fonts.len())]
-    }
-
-    fn global() -> &'static FontCache {
-        FONT_CACHE.get_or_init(FontCache::new)
-    }
-}
-
-#[derive(Serialize, Clone, Copy, Debug)]
-pub struct Highlight {
-    row: usize,
-    col: usize,
-    sbox: (usize, usize),
-    cell: (usize, usize),
-}
+use crate::{
+    fonts::{self, FontCache},
+    render::{ColorPalette, Highlight, ImageConfig},
+};
 
 #[derive(Clone, Copy)]
 struct CellBox {
@@ -88,85 +32,6 @@ impl CellBox {
 
     fn as_array(&self) -> [u32; 4] {
         [self.x, self.y, self.w, self.h]
-    }
-}
-
-pub struct ImageConfig<'a> {
-    width: u32,
-    height: u32,
-    margin: u32,
-    board_size: u32,
-    cell_size: u32,
-    with_highlight: bool,
-    line_thick: u32,
-    line_thin: u32,
-    do_cell_grid: bool,
-    out_dir: &'a str,
-    font_px: f32,
-}
-
-impl ImageConfig<'_> {
-    pub fn new(n: u32) -> Self {
-        let width = 512;
-        let height = 512;
-        let margin = 16;
-        let board_size = width - 2 * margin;
-        let cell_size = board_size / n;
-        let with_highlight = true;
-        let line_thick = 5;
-        let line_thin = 2;
-        let do_cell_grid = true;
-        let out_dir = "../dataset9";
-        let font_px = 48.0;
-
-        Self {
-            width,
-            height,
-            margin,
-            board_size,
-            cell_size,
-            with_highlight,
-            line_thick,
-            line_thin,
-            do_cell_grid,
-            out_dir,
-            font_px,
-        }
-    }
-}
-
-struct ColorPalette {
-    background: Rgba<u8>,
-    border: Rgba<u8>,
-    highlight_row: Rgba<u8>,
-    highlight_col: Rgba<u8>,
-    highlight_box: Rgba<u8>,
-    highlight_cell: Rgba<u8>,
-}
-
-impl ColorPalette {
-    fn new(rng: &mut SmallRng) -> Self {
-        Self {
-            background: Rgba([255, 255, 255, 255]),
-            border: Rgba([20, 30, 40, 255]),
-            highlight_row: Self::jittered_color([120, 170, 255, 70], [12, 12, 12, 28], rng),
-            highlight_col: Self::jittered_color([120, 170, 255, 70], [12, 12, 12, 28], rng),
-            highlight_box: Self::jittered_color([120, 170, 255, 50], [10, 10, 10, 22], rng),
-            highlight_cell: Self::jittered_color([120, 170, 255, 120], [10, 10, 10, 30], rng),
-        }
-    }
-
-    fn jittered_color(base: [u8; 4], ranges: [i16; 4], rng: &mut SmallRng) -> Rgba<u8> {
-        Rgba([
-            Self::jitter(base[0], ranges[0], rng),
-            Self::jitter(base[1], ranges[1], rng),
-            Self::jitter(base[2], ranges[2], rng),
-            Self::jitter(base[3], ranges[3], rng),
-        ])
-    }
-
-    fn jitter(base: u8, range: i16, rng: &mut SmallRng) -> u8 {
-        ((base as i16 + rng.random_range(-range..=range)).clamp(0, 255)) as u8
     }
 }
 
@@ -390,10 +255,8 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
         colors: &ColorPalette,
         rng: &mut SmallRng,
     ) {
-        // Получаем шрифт из кэша
+        // 1) Шрифт и масштаб
         let font = FontCache::global().get_random(rng);
-
-        // Определяем размер шрифта
         let small = rng.random_range(0..100) < 35;
         let scale = if small {
             PxScale {
@@ -407,7 +270,7 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
             }
         };
 
-        // Рендерим числа
+        // 2) Рендер каждой цифры
         for r in 0..N {
             for c in 0..N {
                 let value = self.m[r][c];
@@ -416,25 +279,25 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
                 }
 
                 let cell = boxes[r][c];
-                // без аллокаций строк:
+                let ch = fonts::DIGITS[value as usize];
 
-                let s = DIGITS[value as usize];
-
-                let vm = font.as_scaled(scale);
-                let ch = s.chars().next().unwrap();
+                // Построить глиф в (0,0), чтобы померить px_bounds
                 let gid = font.glyph_id(ch);
-                let adv = font.h_advance_unscaled(gid.with_scale(scale).id); // ширина глифа
+                let glyph0 = gid.with_scale_and_position(scale, point(0.0, 0.0));
+                if let Some(outlined0) = font.outline_glyph(glyph0) {
+                    let b = outlined0.px_bounds();
+                    let bw = b.max.x - b.min.x;
+                    let bh = b.max.y - b.min.y;
 
-                let jx: i32 = rng.random_range(-2..=2);
-                let jy: i32 = rng.random_range(-2..=2);
+                    let cx = cell.x as f32 + 0.5 * cell.w as f32;
+                    let cy = cell.y as f32 + 0.5 * cell.h as f32;
 
-                // центрирование по X по advance, по Y по ascent (базовая линия):
-                // let tx = (cell.x as f32 + (cell.w as f32 - adv) * 0.5).round() as i32 + jx;
-                // let ty = (cell.y as f32 + (cell.h as f32 + vm.ascent()) * 0.5).round() as i32 + jy;
-                let tx = (cell.x as f32 + (cell.w as f32) * 0.5).round() as i32 + jx;
-                let ty = (cell.y as f32 + (cell.h as f32) * 0.5).round() as i32 + jy;
+                    let tl_x = (cx - 0.5 * bw).round() as i32;
+                    let tl_y = (cy - 0.7 * bh).round() as i32;
 
-                draw_text_mut(img, colors.border, tx, ty, scale, font, s);
+                    draw_text_mut(img, colors.border, tl_x, tl_y, scale, font, &ch.to_string());
+                }
+                // Никакого return здесь — продолжаем рендер сетки
             }
         }
     }
