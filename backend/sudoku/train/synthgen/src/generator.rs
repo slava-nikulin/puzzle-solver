@@ -1,3 +1,8 @@
+use crate::{
+    fonts::{self, FontCache, get_metrics_pack},
+    geom::{CellBox, CellGrid},
+    render::{ColorPalette, Highlight, ImageConfig},
+};
 use ab_glyph::PxScale;
 use image::RgbaImage;
 use imageproc::{
@@ -5,43 +10,10 @@ use imageproc::{
     rect::Rect,
 };
 use rand::{Rng, SeedableRng, rngs::SmallRng};
-use serde::Serialize;
 use std::{
     fs::File,
-    io::{BufWriter, Error, Write},
-    path::Path,
+    io::BufWriter,
 };
-
-use crate::{
-    fonts::{self, FontCache, get_metrics_pack},
-    render::{ColorPalette, Highlight, ImageConfig},
-};
-
-#[derive(Clone, Copy, Serialize)]
-pub struct CellBox {
-    x: u32,
-    y: u32,
-    w: u32,
-    h: u32,
-}
-
-impl CellBox {
-    fn new(x: u32, y: u32, w: u32, h: u32) -> Self {
-        Self { x, y, w, h }
-    }
-}
-
-#[derive(Serialize)]
-struct JsonRecord {
-    schema: &'static str,
-    image: String,
-    labels: Vec<u8>,
-    boxes: Vec<CellBox>,
-    dim: u8,
-    seed: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    highlight: Option<Highlight>,
-}
 
 pub struct DatasetItemGenerator<'a, const N: usize, const BR: usize, const BC: usize> {
     pub m: [[u8; N]; N],
@@ -50,6 +22,7 @@ pub struct DatasetItemGenerator<'a, const N: usize, const BR: usize, const BC: u
 }
 
 impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, N, BR, BC> {
+    // Public API
     pub fn reset_matrix(&mut self) {
         self.m.iter_mut().for_each(|row| row.fill(0));
     }
@@ -67,41 +40,40 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
             }
         }
     }
-    pub fn save_img(
+    pub fn render_and_save_image(
         &self,
         id: u32,
         seed: u64,
-    ) -> image::ImageResult<([[CellBox; N]; N], Option<Highlight>)> {
+    ) -> image::ImageResult<(CellGrid<N>, Option<Highlight>)> {
         debug_assert_eq!(N, BR * BC);
 
         let mut rng = SmallRng::seed_from_u64(seed);
         let colors = ColorPalette::new(&mut rng);
 
-        // Инициализация изображения
         let mut img =
             RgbaImage::from_pixel(self.config.width, self.config.height, colors.background);
-
-        // Вычисление bbox'ов клеток
         let boxes = self.calculate_cell_boxes();
-
-        // Генерация подсветок
         let highlight = self.generate_highlight(&mut rng);
 
-        // Рендеринг
         if let Some(hl) = highlight {
             self.render_highlights(&mut img, &hl, &boxes, &colors, &mut rng);
         }
-
         self.render_borders(&mut img, &colors);
         self.render_numbers(&mut img, &boxes, &colors, &mut rng);
 
-        // Сохранение
-        self.save_image(&img, id)?;
+        // Image geometry invariants
+        debug_assert!(self.config.board_size >= self.config.cell_size * (N as u32));
+        debug_assert!(
+            self.config.board_size - self.config.cell_size * (N as u32) < self.config.cell_size
+        );
+
+        self.save_png(&img, id)?;
 
         Ok((boxes, highlight))
     }
 
-    fn calculate_cell_boxes(&self) -> [[CellBox; N]; N] {
+    // Helpers
+    fn calculate_cell_boxes(&self) -> CellGrid<N> {
         let mut boxes = [[CellBox::new(0, 0, 0, 0); N]; N];
         let w = self.config.board_size;
         let h = self.config.board_size;
@@ -144,11 +116,11 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
         &self,
         img: &mut RgbaImage,
         highlight: &Highlight,
-        boxes: &[[CellBox; N]; N],
+        boxes: &CellGrid<N>,
         colors: &ColorPalette,
         rng: &mut SmallRng,
     ) {
-        // Подсветка строки
+        // Highlight the selected row
         if rng.random_range(0..100) < 70 {
             let y = boxes[highlight.row][0].y;
             draw_filled_rect_mut(
@@ -159,7 +131,7 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
             );
         }
 
-        // Подсветка колонки
+        // Highlight the selected column
         if rng.random_range(0..100) < 70 {
             let x = boxes[0][highlight.col].x;
             draw_filled_rect_mut(
@@ -170,7 +142,7 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
             );
         }
 
-        // Подсветка блока
+        // Highlight the selected sub-box
         if rng.random_range(0..100) < 70 {
             let (by, bx) = highlight.sbox;
             let x0 = self.config.margin + (bx as u32) * (BC as u32) * self.config.cell_size;
@@ -185,7 +157,7 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
             );
         }
 
-        // Подсветка ячейки
+        // Highlight the selected cell
         if rng.random_range(0..100) < 70 {
             let (r, c) = highlight.cell;
             let cell = boxes[r][c];
@@ -202,7 +174,7 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
             let x = self.config.margin + i as u32 * self.config.cell_size;
             let y = self.config.margin + i as u32 * self.config.cell_size;
 
-            // Вертикальные линии
+            // Vertical grid lines
             let v_thickness = self.get_line_thickness(i, BC);
             if v_thickness > 0 {
                 draw_filled_rect_mut(
@@ -216,7 +188,7 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
                 );
             }
 
-            // Горизонтальные линии
+            // Horizontal grid lines
             let h_thickness = self.get_line_thickness(i, BR);
             if h_thickness > 0 {
                 draw_filled_rect_mut(
@@ -245,7 +217,7 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
     fn render_numbers(
         &self,
         img: &mut RgbaImage,
-        boxes: &[[CellBox; N]; N],
+        boxes: &CellGrid<N>,
         colors: &ColorPalette,
         rng: &mut SmallRng,
     ) {
@@ -271,7 +243,7 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
                 }
                 let cell = boxes[r][c];
 
-                // предрасчитанные метрики
+                // Precomputed digit metrics
                 let dm = &pack.digits[*m_val as usize];
                 let cx = cell.x as f32 + 0.5 * cell.w as f32;
                 let cy = cell.y as f32 + 0.5 * cell.h as f32;
@@ -303,71 +275,12 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
         }
     }
 
-    fn save_image(&self, img: &RgbaImage, id: u32) -> image::ImageResult<()> {
-        debug_assert_eq!(N, BR * BC);
-        debug_assert!(self.config.board_size >= self.config.cell_size * (N as u32));
-        debug_assert!(
-            self.config.board_size - self.config.cell_size * (N as u32) < self.config.cell_size
-        );
-
-        let out_path = Path::new(self.config.out_dir)
-            .join("images")
-            .join(format!("{id:06}.png"));
-
-        img.save(out_path)
-    }
-
-    pub fn save_matrix(
-        &mut self,
-        id: u32,
-        seed: u64,
-        boxes: &[[CellBox; N]; N],
-        hl: Option<Highlight>,
-    ) -> Result<(), Error> {
-        let image_rel = format!("images/{id:06}.png");
-        let flat_boxes: Vec<CellBox> = boxes.iter().flatten().copied().collect();
-        let rec = JsonRecord {
-            schema: "v1",
-            image: image_rel,
-            labels: self.m.iter().flatten().cloned().collect(),
-            boxes: flat_boxes,
-            seed,
-            highlight: hl,
-            dim: N as u8,
-        };
-        let json = serde_json::to_string(&rec).unwrap();
-
-        // Записываем в уже открытый файл
-        if let Some(ref mut writer) = self.writer {
-            writeln!(writer, "{}", json)?;
-        }
-
-        Ok(())
-    }
-
-    pub fn close_writer(&mut self) -> Result<(), Error> {
-        if let Some(writer) = self.writer.take() {
-            writer.into_inner()?.sync_all()?;
-        }
-        Ok(())
-    }
-
-    pub fn init_io(&mut self) -> std::io::Result<()> {
-        let dir = std::path::Path::new(self.config.out_dir).join("images");
-        std::fs::create_dir_all(&dir)?;
-        if self.writer.is_none() {
-            let path = std::path::Path::new(self.config.out_dir).join("labels.jsonl");
-            let file = std::fs::File::create(path)?;
-            self.writer = Some(std::io::BufWriter::with_capacity(8 << 20, file));
-        }
-        Ok(())
-    }
 }
 
 impl<const N: usize, const BR: usize, const BC: usize> Drop
     for DatasetItemGenerator<'_, N, BR, BC>
 {
     fn drop(&mut self) {
-        let _ = self.close_writer();
+        let _ = self.finalize_output();
     }
 }
