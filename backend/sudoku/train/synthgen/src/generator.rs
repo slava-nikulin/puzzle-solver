@@ -17,8 +17,8 @@ use crate::{
     render::{ColorPalette, Highlight, ImageConfig},
 };
 
-#[derive(Clone, Copy)]
-struct CellBox {
+#[derive(Clone, Copy, Serialize)]
+pub struct CellBox {
     x: u32,
     y: u32,
     w: u32,
@@ -29,10 +29,6 @@ impl CellBox {
     fn new(x: u32, y: u32, w: u32, h: u32) -> Self {
         Self { x, y, w, h }
     }
-
-    fn as_array(&self) -> [u32; 4] {
-        [self.x, self.y, self.w, self.h]
-    }
 }
 
 #[derive(Serialize)]
@@ -40,7 +36,7 @@ struct JsonRecord {
     schema: &'static str,
     image: String,
     labels: Vec<u8>,
-    boxes: Vec<[u32; 4]>,
+    boxes: Vec<CellBox>,
     dim: u8,
     seed: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -75,7 +71,7 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
         &self,
         id: u32,
         seed: u64,
-    ) -> image::ImageResult<([[[u32; 4]; N]; N], Option<Highlight>)> {
+    ) -> image::ImageResult<([[CellBox; N]; N], Option<Highlight>)> {
         debug_assert_eq!(N, BR * BC);
 
         let mut rng = SmallRng::seed_from_u64(seed);
@@ -102,9 +98,7 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
         // Сохранение
         self.save_image(&img, id)?;
 
-        // Преобразование boxes в нужный формат
-        let result_boxes = self.convert_boxes(&boxes);
-        Ok((result_boxes, highlight))
+        Ok((boxes, highlight))
     }
 
     fn calculate_cell_boxes(&self) -> [[CellBox; N]; N] {
@@ -112,8 +106,9 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
         let w = self.config.board_size;
         let h = self.config.board_size;
         let cs = self.config.cell_size;
-        for r in 0..N {
-            for c in 0..N {
+
+        for (r, row) in boxes.iter_mut().enumerate() {
+            for (c, cell) in row.iter_mut().enumerate() {
                 let x = self.config.margin + c as u32 * cs;
                 let y = self.config.margin + r as u32 * cs;
                 let ww = if c == N - 1 {
@@ -126,7 +121,7 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
                 } else {
                     cs
                 };
-                boxes[r][c] = CellBox::new(x, y, ww, hh);
+                *cell = CellBox::new(x, y, ww, hh);
             }
         }
         boxes
@@ -247,78 +242,6 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
         }
     }
 
-    // fn render_numbers(
-    //     &self,
-    //     img: &mut RgbaImage,
-    //     boxes: &[[CellBox; N]; N],
-    //     colors: &ColorPalette,
-    //     rng: &mut SmallRng,
-    // ) {
-    //     let cache = FontCache::global();
-    //     let small = rng.random_range(0..100) < 35;
-    //     let scale = if small {
-    //         PxScale {
-    //             x: self.config.font_px / 2.0,
-    //             y: self.config.font_px / 2.0,
-    //         }
-    //     } else {
-    //         PxScale {
-    //             x: self.config.font_px,
-    //             y: self.config.font_px,
-    //         }
-    //     };
-
-    //     let font = cache.get_random(rng);
-    //     let base_jitter_px: f32 = if small { 1.0 } else { 2.0 };
-    //     // Масштабированное лицо шрифта для метрик ascent/descent/height
-    //     let sf = font.as_scaled(scale); // дает доступ к ascent(), descent(), height() в пикселях [7]
-
-    //     for r in 0..N {
-    //         for c in 0..N {
-    //             let value = self.m[r][c];
-    //             if value == 0 {
-    //                 continue;
-    //             }
-
-    //             let cell = boxes[r][c];
-    //             let text = fonts::DIGITS[value as usize];
-
-    //             // 1) Горизонтальный центр — по реальной ширине контура одного глифа
-    //             let gid = font.glyph_id(text.chars().next().unwrap());
-    //             let glyph0 = gid.with_scale_and_position(scale, point(0.0, 0.0));
-    //             let outlined0 = font.outline_glyph(glyph0).expect("font must have outlines"); // [2]
-    //             let b = outlined0.px_bounds(); // точные пиксельные границы контура [2][1]
-    //             let bw = (b.max.x - b.min.x) as f32;
-
-    //             // 2) Вертикальный центр — по макетной высоте (ascent - descent),
-    //             // без line_gap для одиночной строки
-    //             let layout_h = sf.height(); // ascent - descent (descent отрицателен) [7]
-    //             let cx = cell.x as f32 + 0.5 * cell.w as f32;
-    //             let cy = cell.y as f32 + 0.5 * cell.h as f32;
-
-    //             let mut tl_x = (cx - 0.5 * bw).round();
-    //             let mut tl_y = (cy - 0.5 * layout_h).round(); // верх макетной рамки [8][7]
-
-    //             let jx = rng.random_range(-base_jitter_px..=base_jitter_px);
-    //             let jy = rng.random_range(-base_jitter_px..=base_jitter_px);
-
-    //             tl_x += jx;
-    //             tl_y += jy;
-
-    //             // draw_text_mut ожидает верхний‑левый угол макетной рамки
-    //             draw_text_mut(
-    //                 img,
-    //                 colors.border,
-    //                 tl_x as i32,
-    //                 tl_y as i32,
-    //                 scale,
-    //                 font,
-    //                 text,
-    //             );
-    //         }
-    //     }
-    // }
-
     fn render_numbers(
         &self,
         img: &mut RgbaImage,
@@ -341,16 +264,15 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
         let pack = get_metrics_pack(font_name, font, px);
         let layout_h = pack.height;
 
-        for r in 0..N {
-            for c in 0..N {
-                let v = self.m[r][c];
-                if v == 0 {
+        for (r, row) in self.m.iter().enumerate() {
+            for (c, m_val) in row.iter().enumerate() {
+                if *m_val == 0 {
                     continue;
                 }
                 let cell = boxes[r][c];
 
                 // предрасчитанные метрики
-                let dm = &pack.digits[v as usize];
+                let dm = &pack.digits[*m_val as usize];
                 let cx = cell.x as f32 + 0.5 * cell.w as f32;
                 let cy = cell.y as f32 + 0.5 * cell.h as f32;
 
@@ -375,7 +297,7 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
                     tl_y,
                     scale,
                     font,
-                    fonts::DIGITS[v as usize],
+                    fonts::DIGITS[*m_val as usize],
                 );
             }
         }
@@ -395,31 +317,20 @@ impl<const N: usize, const BR: usize, const BC: usize> DatasetItemGenerator<'_, 
         img.save(out_path)
     }
 
-    fn convert_boxes(&self, boxes: &[[CellBox; N]; N]) -> [[[u32; 4]; N]; N] {
-        let mut result = [[[0u32; 4]; N]; N];
-
-        for r in 0..N {
-            for c in 0..N {
-                result[r][c] = boxes[r][c].as_array();
-            }
-        }
-
-        result
-    }
-
     pub fn save_matrix(
         &mut self,
         id: u32,
         seed: u64,
-        boxes: &[[[u32; 4]; N]; N],
+        boxes: &[[CellBox; N]; N],
         hl: Option<Highlight>,
     ) -> Result<(), Error> {
         let image_rel = format!("images/{id:06}.png");
+        let flat_boxes: Vec<CellBox> = boxes.iter().flatten().copied().collect();
         let rec = JsonRecord {
             schema: "v1",
             image: image_rel,
             labels: self.m.iter().flatten().cloned().collect(),
-            boxes: boxes.iter().flatten().cloned().collect(),
+            boxes: flat_boxes,
             seed,
             highlight: hl,
             dim: N as u8,
